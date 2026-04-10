@@ -46,3 +46,11 @@ Then:
   ```shell
   xk6 build --with github.com/moko-poi/xk6-valkey
   ```
+
+## Notice
+
+This project is a derivative work of [xk6-redis](https://github.com/grafana/xk6-redis) by Grafana Labs, licensed under the Apache License 2.0. The Redis client library (go-redis) has been replaced with [valkey-go](https://github.com/valkey-io/valkey-go) to provide native Valkey support.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
