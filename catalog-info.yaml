@@ -1,0 +1,13 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: xk6-valkey
+  title: xk6-valkey
+  description: |
+    A k6 extension to test the performance of a Valkey instance.
+  annotations:
+    github.com/project-slug: moko-poi/xk6-valkey
+spec:
+  type: library
+  owner: group:default/k6-core
+  lifecycle: production
