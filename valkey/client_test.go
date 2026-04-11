@@ -2,6 +2,7 @@ package valkey
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -2689,4 +2690,129 @@ func TestClientTLSRespectsNetworkOPtions(t *testing.T) {
 	assert.Error(t, gotScriptErr)
 	assert.ErrorContains(t, gotScriptErr, "IP ("+rs.Addr().IP.String()+") is in a blacklisted range")
 	assert.Equal(t, 0, rs.HandledCommandsCount())
+}
+
+func TestClientIsConnected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("false_before_any_command", func(t *testing.T) {
+		t.Parallel()
+
+		ts := newTestSetup(t)
+		gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+			val, err := ts.rt.RunString(`
+				const redis = new Client({
+					socket: { host: 'localhost', port: 6379 }
+				});
+				redis.isConnected();
+			`)
+			if err != nil {
+				return err
+			}
+			if val.ToBoolean() {
+				return errors.New("expected isConnected to be false before any command")
+			}
+			return nil
+		})
+		assert.NoError(t, gotScriptErr)
+	})
+
+	t.Run("true_after_command", func(t *testing.T) {
+		t.Parallel()
+
+		ts := newTestSetup(t)
+		rs := RunT(t)
+
+		gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+			_, err := ts.rt.RunString(fmt.Sprintf(`
+				(async () => {
+					const redis = new Client('redis://%s:%d');
+					await redis.sendCommand("PING");
+					if (!redis.isConnected()) {
+						throw new Error("expected isConnected to be true after command");
+					}
+				})()
+			`, rs.Addr().IP.String(), rs.Addr().Port))
+			return err
+		})
+		assert.NoError(t, gotScriptErr)
+	})
+}
+
+func TestClientTLSRootCAMerging(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+
+	// Generate a CA cert to put in the VU state's RootCAs pool.
+	vuCACert, _, err := generateTLSCert()
+	require.NoError(t, err)
+
+	vuCertPool := x509.NewCertPool()
+	vuCertPool.AppendCertsFromPEM(vuCACert)
+	ts.state.TLSConfig.RootCAs = vuCertPool
+	ts.state.TLSConfig.InsecureSkipVerify = true
+
+	rs := RunTSecure(t, nil)
+
+	err = ts.rt.Set("caCert", string(rs.TLSCertificate()))
+	require.NoError(t, err)
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client({
+				socket: {
+					host: '%s',
+					port: %d,
+					tls: {
+						ca: [caCert],
+					}
+				}
+			});
+
+			redis.sendCommand("PING");
+		`, rs.Addr().IP.String(), rs.Addr().Port))
+
+		return err
+	})
+
+	// The connection should succeed, meaning both the VU's RootCAs
+	// and the client-provided CA were merged successfully.
+	require.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+}
+
+func TestClientTLSRootCAMergingVUOnly(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunTSecure(t, nil)
+
+	// Put the server's CA cert in the VU state's RootCAs pool only,
+	// not in the client options.
+	vuCertPool := x509.NewCertPool()
+	vuCertPool.AppendCertsFromPEM(rs.TLSCertificate())
+	ts.state.TLSConfig.RootCAs = vuCertPool
+	ts.state.TLSConfig.InsecureSkipVerify = true
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client({
+				socket: {
+					host: '%s',
+					port: %d,
+					tls: {}
+				}
+			});
+
+			redis.sendCommand("PING");
+		`, rs.Addr().IP.String(), rs.Addr().Port))
+
+		return err
+	})
+
+	// Should succeed because the VU's RootCAs contain the server's CA,
+	// and the merge copies them into the client's TLS config.
+	require.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
 }
