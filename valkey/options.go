@@ -16,8 +16,9 @@ type singleNodeOptions struct {
 	Username   string         `json:"username,omitempty"`
 	Password   string         `json:"password,omitempty"` //nolint:gosec
 	ClientName string         `json:"clientName,omitempty"`
-	Database   int            `json:"database,omitempty"`
-	Resp3      bool           `json:"resp3,omitempty"`
+	Database        int            `json:"database,omitempty"`
+	Resp3           bool           `json:"resp3,omitempty"`
+	ClientSideCache bool           `json:"clientSideCache,omitempty"`
 }
 
 func (opts singleNodeOptions) toNodeInfo() (nodeInfo, error) {
@@ -53,8 +54,9 @@ type tlsOptions struct {
 }
 
 type commonClusterOptions struct {
-	ReadOnly bool `json:"readOnly,omitempty"`
-	Resp3    bool `json:"resp3,omitempty"`
+	ReadOnly        bool `json:"readOnly,omitempty"`
+	Resp3           bool `json:"resp3,omitempty"`
+	ClientSideCache bool `json:"clientSideCache,omitempty"`
 }
 
 type clusterNodesMapOptions struct {
@@ -176,6 +178,10 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 		if o.Resp3 {
 			copts.AlwaysRESP2 = false
 		}
+		if o.ClientSideCache {
+			copts.DisableCache = false
+			copts.AlwaysRESP2 = false
+		}
 
 		var infos []nodeInfo
 		for _, n := range o.Nodes {
@@ -191,6 +197,10 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 	case *clusterNodesStringOptions:
 		setClusterOptions(&copts, &o.commonClusterOptions)
 		if o.Resp3 {
+			copts.AlwaysRESP2 = false
+		}
+		if o.ClientSideCache {
+			copts.DisableCache = false
 			copts.AlwaysRESP2 = false
 		}
 
@@ -223,6 +233,10 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 		if o.Resp3 {
 			copts.AlwaysRESP2 = false
 		}
+		if o.ClientSideCache {
+			copts.DisableCache = false
+			copts.AlwaysRESP2 = false
+		}
 
 		ni, err := o.toNodeInfo()
 		if err != nil {
@@ -233,6 +247,10 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 		}
 	case *singleNodeOptions:
 		if o.Resp3 {
+			copts.AlwaysRESP2 = false
+		}
+		if o.ClientSideCache {
+			copts.DisableCache = false
 			copts.AlwaysRESP2 = false
 		}
 
