@@ -24,6 +24,6 @@ The extension follows k6's standard module pattern: a root module creates per-VU
 
 - The linter config is not committed. It is downloaded from k6 core's master branch on first lint run. Do not commit it.
 
-- The underlying valkey-go client is instantiated once per VU on first use. valkey-go uses auto-pipelining for high throughput. Pool-related JS options (poolSize, minIdleConns, etc.) are accepted but ignored, as valkey-go manages connections internally.
+- The underlying valkey-go client is instantiated once per VU on first use. valkey-go uses auto-pipelining for high throughput and manages connections internally.
 
 - RESP2 protocol is used by default (`AlwaysRESP2: true`) for compatibility. Client-side caching is disabled (`DisableCache: true`).
