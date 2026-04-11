@@ -39,18 +39,9 @@ func (opts singleNodeOptions) toNodeInfo() (nodeInfo, error) {
 }
 
 type socketOptions struct {
-	Host               string      `json:"host,omitempty"`
-	Port               int         `json:"port,omitempty"`
-	TLS                *tlsOptions `json:"tls,omitempty"`
-	DialTimeout        int64       `json:"dialTimeout,omitempty"`
-	ReadTimeout        int64       `json:"readTimeout,omitempty"`
-	WriteTimeout       int64       `json:"writeTimeout,omitempty"`
-	PoolSize           int         `json:"poolSize,omitempty"`
-	MinIdleConns       int         `json:"minIdleConns,omitempty"`
-	MaxConnAge         int64       `json:"maxConnAge,omitempty"`
-	PoolTimeout        int64       `json:"poolTimeout,omitempty"`
-	IdleTimeout        int64       `json:"idleTimeout,omitempty"`
-	IdleCheckFrequency int64       `json:"idleCheckFrequency,omitempty"`
+	Host string      `json:"host,omitempty"`
+	Port int         `json:"port,omitempty"`
+	TLS  *tlsOptions `json:"tls,omitempty"`
 }
 
 type tlsOptions struct {
@@ -61,10 +52,7 @@ type tlsOptions struct {
 }
 
 type commonClusterOptions struct {
-	MaxRedirects   int  `json:"maxRedirects,omitempty"`
-	ReadOnly       bool `json:"readOnly,omitempty"`
-	RouteByLatency bool `json:"routeByLatency,omitempty"`
-	RouteRandomly  bool `json:"routeRandomly,omitempty"`
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 type clusterNodesMapOptions struct {
@@ -250,8 +238,6 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 // setConsistentOptions collects addresses into InitAddress and validates that
 // Username, Password, ClientName, and SelectDB are consistent across all nodes.
 // TLS config is taken from the first node that provides it.
-// Pool settings (PoolSize, MinIdleConns, etc.) are dropped as they don't apply
-// to valkey-go.
 //
 //nolint:gocognit,cyclop
 func setConsistentOptions(copts *valkey.ClientOption, infos []nodeInfo) error {
@@ -298,9 +284,6 @@ func setConsistentOptions(copts *valkey.ClientOption, infos []nodeInfo) error {
 }
 
 func setClusterOptions(copts *valkey.ClientOption, opts *commonClusterOptions) {
-	// MaxRedirects, RouteByLatency, and RouteRandomly don't have direct
-	// valkey-go equivalents and are silently ignored.
-	// ReadOnly maps to SendToReplicas for read-only commands.
 	if opts.ReadOnly {
 		copts.SendToReplicas = func(cmd valkey.Completed) bool {
 			return cmd.IsReadOnly()
@@ -309,8 +292,7 @@ func setClusterOptions(copts *valkey.ClientOption, opts *commonClusterOptions) {
 }
 
 // setSocketOptions extracts the address string and optional *tls.Config from
-// socket options. Pool-related settings are dropped as they don't apply to
-// valkey-go.
+// socket options.
 func setSocketOptions(sopts *socketOptions) (string, *tls.Config, error) {
 	if sopts == nil {
 		return "", nil, fmt.Errorf("empty socket options")

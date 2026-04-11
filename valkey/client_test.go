@@ -61,10 +61,7 @@ func TestClientConstructor(t *testing.T) {
 			name: "ok/object/cluster_urls",
 			arg: `{
 				cluster: {
-					maxRedirects: 3,
 					readOnly: true,
-					routeByLatency: true,
-					routeRandomly: true,
 					nodes: ['redis://host1:6379', 'redis://host2:6379']
 				}
 			}`,
