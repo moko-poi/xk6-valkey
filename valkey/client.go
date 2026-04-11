@@ -1163,9 +1163,17 @@ func (c *Client) connect() error {
 		tlsCfg.KeyLogWriter = vuState.TLSConfig.KeyLogWriter
 		tlsCfg.Certificates = append(tlsCfg.Certificates, vuState.TLSConfig.Certificates...)
 
-		// TODO: Merge vuState.TLSConfig.RootCAs with
-		// c.valkeyOptions.TLSConfig. k6 currently doesn't allow setting
-		// this, so it doesn't matter right now, but these should be merged.
+		// Merge Root CAs: start from the VU pool (if any) and add the
+		// client-provided CAs on top so both are trusted.
+		if vuState.TLSConfig.RootCAs != nil {
+			merged := vuState.TLSConfig.RootCAs.Clone()
+			if tlsCfg.RootCAs != nil {
+				for _, cert := range tlsCfg.RootCAs.Subjects() { //nolint:staticcheck
+					merged.AppendCertsFromPEM(cert)
+				}
+			}
+			tlsCfg.RootCAs = merged
+		}
 
 		// In order to preserve the underlying effects of the [netext.Dialer], such
 		// as handling blocked hostnames, or handling hostname resolution, we override
