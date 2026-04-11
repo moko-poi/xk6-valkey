@@ -17,6 +17,7 @@ type singleNodeOptions struct {
 	Password   string         `json:"password,omitempty"` //nolint:gosec
 	ClientName string         `json:"clientName,omitempty"`
 	Database   int            `json:"database,omitempty"`
+	Resp3      bool           `json:"resp3,omitempty"`
 }
 
 func (opts singleNodeOptions) toNodeInfo() (nodeInfo, error) {
@@ -53,6 +54,7 @@ type tlsOptions struct {
 
 type commonClusterOptions struct {
 	ReadOnly bool `json:"readOnly,omitempty"`
+	Resp3    bool `json:"resp3,omitempty"`
 }
 
 type clusterNodesMapOptions struct {
@@ -171,6 +173,9 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 	switch o := options.(type) {
 	case *clusterNodesMapOptions:
 		setClusterOptions(&copts, &o.commonClusterOptions)
+		if o.Resp3 {
+			copts.AlwaysRESP2 = false
+		}
 
 		var infos []nodeInfo
 		for _, n := range o.Nodes {
@@ -185,6 +190,9 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 		}
 	case *clusterNodesStringOptions:
 		setClusterOptions(&copts, &o.commonClusterOptions)
+		if o.Resp3 {
+			copts.AlwaysRESP2 = false
+		}
 
 		var infos []nodeInfo
 		for _, n := range o.Nodes {
@@ -212,6 +220,9 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 			Username:  o.SentinelUsername,
 			Password:  o.SentinelPassword,
 		}
+		if o.Resp3 {
+			copts.AlwaysRESP2 = false
+		}
 
 		ni, err := o.toNodeInfo()
 		if err != nil {
@@ -221,6 +232,10 @@ func toClientOption(options any) (valkey.ClientOption, error) {
 			return valkey.ClientOption{}, err
 		}
 	case *singleNodeOptions:
+		if o.Resp3 {
+			copts.AlwaysRESP2 = false
+		}
+
 		ni, err := o.toNodeInfo()
 		if err != nil {
 			return valkey.ClientOption{}, err
