@@ -3090,3 +3090,110 @@ func TestClientHgetCache(t *testing.T) {
 		{"HGET", "myhash", "field1"},
 	}, rs.GotCommands())
 }
+
+func TestSharedClientAcrossVUs(t *testing.T) {
+	t.Parallel()
+
+	// Test with shared: true — both VUs share a single valkey.Client.
+	rsShared := RunT(t)
+	rsShared.RegisterCommandHandler("SET", func(c *Connection, args []string) {
+		c.WriteOK()
+	})
+	rsShared.RegisterCommandHandler("GET", func(c *Connection, args []string) {
+		c.WriteBulkString("value")
+	})
+
+	// Test with shared: false — each VU creates its own valkey.Client.
+	rsIndependent := RunT(t)
+	rsIndependent.RegisterCommandHandler("SET", func(c *Connection, args []string) {
+		c.WriteOK()
+	})
+	rsIndependent.RegisterCommandHandler("GET", func(c *Connection, args []string) {
+		c.WriteBulkString("value")
+	})
+
+	rootMod := New()
+
+	makeVU := func(rm *RootModule) testSetup {
+		runtime := modulestest.NewRuntime(t)
+		samples := make(chan metrics.SampleContainer, 1000)
+
+		state := &lib.State{
+			Dialer: netext.NewDialer(
+				net.Dialer{},
+				netext.NewResolver(net.LookupIP, 0, types.DNSfirst, types.DNSpreferIPv4),
+			),
+			Options: lib.Options{
+				SystemTags: metrics.NewSystemTagSet(
+					metrics.TagURL,
+					metrics.TagProto,
+					metrics.TagStatus,
+					metrics.TagSubproto,
+				),
+				UserAgent: null.StringFrom("TestUserAgent"),
+			},
+			Samples:        samples,
+			TLSConfig:      &tls.Config{},
+			BuiltinMetrics: metrics.RegisterBuiltinMetrics(metrics.NewRegistry()),
+			Tags:           lib.NewVUStateTags(metrics.NewRegistry().RootTagSet()),
+		}
+		runtime.MoveToVUContext(state)
+
+		rt := runtime.VU.RuntimeField
+		m := rm.NewModuleInstance(runtime.VU)
+		require.NoError(t, rt.Set("Client", m.Exports().Named["Client"]))
+
+		return testSetup{
+			runtime: runtime,
+			rt:      rt,
+			state:   state,
+			samples: samples,
+		}
+	}
+
+	runScript := func(ts testSetup, script string) {
+		t.Helper()
+		var scriptErr error
+		ts.runtime.EventLoop.Start(func() error {
+			_, scriptErr = ts.rt.RunString(script)
+			return scriptErr
+		})
+		require.NoError(t, scriptErr)
+	}
+
+	// Shared mode: two VUs, same RootModule.
+	vu1Shared := makeVU(rootMod)
+	vu2Shared := makeVU(rootMod)
+
+	sharedScript := fmt.Sprintf(`
+		const client = new Client({
+			socket: { host: "%s", port: %d },
+			shared: true,
+		});
+		client.set("key", "value", 0).then(() => client.get("key"))
+	`, rsShared.Addr().IP.String(), rsShared.Addr().Port)
+
+	runScript(vu1Shared, sharedScript)
+	runScript(vu2Shared, sharedScript)
+	sharedConns := rsShared.HandledConnectionsCount()
+
+	// Independent mode: two VUs, same RootModule (but shared: false).
+	vu1Indep := makeVU(rootMod)
+	vu2Indep := makeVU(rootMod)
+
+	indepScript := fmt.Sprintf(`
+		const client = new Client({
+			socket: { host: "%s", port: %d },
+		});
+		client.set("key", "value", 0).then(() => client.get("key"))
+	`, rsIndependent.Addr().IP.String(), rsIndependent.Addr().Port)
+
+	runScript(vu1Indep, indepScript)
+	runScript(vu2Indep, indepScript)
+	indepConns := rsIndependent.HandledConnectionsCount()
+
+	// Shared mode should produce fewer connections than independent mode.
+	assert.Less(t, sharedConns, indepConns,
+		"shared mode (%d conns) should use fewer connections than independent mode (%d conns)",
+		sharedConns, indepConns)
+}

@@ -12,11 +12,14 @@ import (
 type (
 	// RootModule is the global module instance that will create Client
 	// instances for each VU.
-	RootModule struct{}
+	RootModule struct {
+		registry *sharedClientRegistry
+	}
 
 	// ModuleInstance represents an instance of the JS module.
 	ModuleInstance struct {
-		vu modules.VU
+		vu      modules.VU
+		rootMod *RootModule
 
 		*Client
 	}
@@ -30,13 +33,15 @@ var (
 
 // New returns a pointer to a new RootModule instance
 func New() *RootModule {
-	return &RootModule{}
+	return &RootModule{
+		registry: newSharedClientRegistry(),
+	}
 }
 
 // NewModuleInstance implements the modules.Module interface and returns
 // a new instance for each VU.
-func (*RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
-	return &ModuleInstance{vu: vu, Client: &Client{vu: vu}}
+func (rm *RootModule) NewModuleInstance(vu modules.VU) modules.Instance {
+	return &ModuleInstance{vu: vu, rootMod: rm, Client: &Client{vu: vu}}
 }
 
 // Exports implements the modules.Instance interface and returns
@@ -73,7 +78,7 @@ func (mi *ModuleInstance) NewClient(call sobek.ConstructorCall) *sobek.Object {
 		common.Throw(rt, errors.New("must specify one argument"))
 	}
 
-	opts, err := readOptions(call.Arguments[0].Export())
+	opts, shared, err := readOptions(call.Arguments[0].Export())
 	if err != nil {
 		common.Throw(rt, err)
 	}
@@ -81,6 +86,8 @@ func (mi *ModuleInstance) NewClient(call sobek.ConstructorCall) *sobek.Object {
 	client := &Client{
 		vu:            mi.vu,
 		valkeyOptions: opts,
+		shared:        shared,
+		registry:      mi.rootMod.registry,
 	}
 
 	return rt.ToValue(client).ToObject(rt)

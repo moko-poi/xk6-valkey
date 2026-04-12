@@ -9,5 +9,5 @@ import (
 // Register the extension on module initialization, available to
 // import from JS as "k6/x/valkey".
 func init() {
-	modules.Register("k6/x/valkey", new(valkey.RootModule))
+	modules.Register("k6/x/valkey", valkey.New())
 }

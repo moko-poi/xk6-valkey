@@ -13,7 +13,7 @@ func TestOptionsResp3(t *testing.T) {
 	t.Run("single_node/default_resp2", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"socket": map[string]any{"host": "localhost", "port": int64(6379)},
 		})
 		require.NoError(t, err)
@@ -23,7 +23,7 @@ func TestOptionsResp3(t *testing.T) {
 	t.Run("single_node/resp3_enabled", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"socket": map[string]any{"host": "localhost", "port": int64(6379)},
 			"resp3":  true,
 		})
@@ -34,7 +34,7 @@ func TestOptionsResp3(t *testing.T) {
 	t.Run("cluster/resp3_enabled", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"cluster": map[string]any{
 				"resp3": true,
 				"nodes": []any{"redis://host1:6379", "redis://host2:6379"},
@@ -47,7 +47,7 @@ func TestOptionsResp3(t *testing.T) {
 	t.Run("sentinel/resp3_enabled", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"socket":     map[string]any{"host": "localhost", "port": int64(26379)},
 			"masterName": "mymaster",
 			"resp3":      true,
@@ -63,7 +63,7 @@ func TestOptionsClientSideCache(t *testing.T) {
 	t.Run("single_node/default_disabled", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"socket": map[string]any{"host": "localhost", "port": int64(6379)},
 		})
 		require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestOptionsClientSideCache(t *testing.T) {
 	t.Run("single_node/enabled", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"socket":          map[string]any{"host": "localhost", "port": int64(6379)},
 			"clientSideCache": true,
 		})
@@ -86,7 +86,7 @@ func TestOptionsClientSideCache(t *testing.T) {
 	t.Run("cluster/enabled", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"cluster": map[string]any{
 				"clientSideCache": true,
 				"nodes":           []any{"redis://host1:6379"},
@@ -100,7 +100,7 @@ func TestOptionsClientSideCache(t *testing.T) {
 	t.Run("sentinel/enabled", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"socket":          map[string]any{"host": "localhost", "port": int64(26379)},
 			"masterName":      "mymaster",
 			"clientSideCache": true,
@@ -117,7 +117,7 @@ func TestOptionsReadOnly(t *testing.T) {
 	t.Run("cluster/readOnly_sets_sendToReplicas", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"cluster": map[string]any{
 				"readOnly": true,
 				"nodes":    []any{"redis://host1:6379"},
@@ -130,13 +130,58 @@ func TestOptionsReadOnly(t *testing.T) {
 	t.Run("cluster/readOnly_default_nil", func(t *testing.T) {
 		t.Parallel()
 
-		opts, err := newOptionsFromObject(map[string]any{
+		opts, _, err := newOptionsFromObject(map[string]any{
 			"cluster": map[string]any{
 				"nodes": []any{"redis://host1:6379"},
 			},
 		})
 		require.NoError(t, err)
 		assert.Nil(t, opts.SendToReplicas)
+	})
+}
+
+func TestOptionsShared(t *testing.T) {
+	t.Parallel()
+
+	t.Run("shared_true", func(t *testing.T) {
+		t.Parallel()
+
+		opts, shared, err := newOptionsFromObject(map[string]any{
+			"socket": map[string]any{"host": "localhost", "port": int64(6379)},
+			"shared": true,
+		})
+		require.NoError(t, err)
+		assert.True(t, shared)
+		assert.Equal(t, []string{"localhost:6379"}, opts.InitAddress)
+	})
+
+	t.Run("shared_false_explicit", func(t *testing.T) {
+		t.Parallel()
+
+		_, shared, err := newOptionsFromObject(map[string]any{
+			"socket": map[string]any{"host": "localhost", "port": int64(6379)},
+			"shared": false,
+		})
+		require.NoError(t, err)
+		assert.False(t, shared)
+	})
+
+	t.Run("shared_omitted_defaults_false", func(t *testing.T) {
+		t.Parallel()
+
+		_, shared, err := newOptionsFromObject(map[string]any{
+			"socket": map[string]any{"host": "localhost", "port": int64(6379)},
+		})
+		require.NoError(t, err)
+		assert.False(t, shared)
+	})
+
+	t.Run("shared_not_supported_for_url", func(t *testing.T) {
+		t.Parallel()
+
+		_, shared, err := readOptions("redis://localhost:6379")
+		require.NoError(t, err)
+		assert.False(t, shared)
 	})
 }
 
@@ -172,7 +217,7 @@ func TestOptionsRemovedFieldsRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := newOptionsFromObject(map[string]any{
+			_, _, err := newOptionsFromObject(map[string]any{
 				"socket": map[string]any{
 					"host":   "localhost",
 					"port":   int64(6379),
@@ -197,7 +242,7 @@ func TestOptionsRemovedFieldsRejected(t *testing.T) {
 		t.Run("cluster/"+tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := newOptionsFromObject(map[string]any{
+			_, _, err := newOptionsFromObject(map[string]any{
 				"cluster": map[string]any{
 					"nodes":  []any{"redis://host1:6379"},
 					tc.field: tc.value,
