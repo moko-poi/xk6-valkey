@@ -1541,13 +1541,12 @@ func (c *Client) connectDirect() error {
 // connection failure typically indicates a configuration problem that won't
 // resolve on retry.
 func (c *Client) connectShared() error {
-	c.once.Do(func() {
-		vuState := c.vu.State()
-		if vuState == nil {
-			c.connectErr = common.NewInitContextError("connecting to a valkey server in the init context is not supported")
-			return
-		}
+	vuState := c.vu.State()
+	if vuState == nil {
+		return common.NewInitContextError("connecting to a valkey server in the init context is not supported")
+	}
 
+	c.once.Do(func() {
 		key := optionsKey(c.valkeyOptions)
 		c.optKey = key
 
@@ -1569,6 +1568,7 @@ func (c *Client) Close() {
 	if c.shared {
 		if c.optKey != "" {
 			c.registry.release(c.optKey)
+			c.optKey = ""
 		}
 		c.valkeyClient = nil
 		return
