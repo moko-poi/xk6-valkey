@@ -1535,6 +1535,11 @@ func (c *Client) connectDirect() error {
 // connectShared obtains a shared valkey.Client from the registry, creating
 // it on first access. All VUs with the same connection options share a single
 // underlying client, enabling valkey-go's auto-pipelining.
+//
+// Note: sync.Once means that if the initial connection fails, subsequent calls
+// will return the cached error without retrying. This is intentional — a
+// connection failure typically indicates a configuration problem that won't
+// resolve on retry.
 func (c *Client) connectShared() error {
 	c.once.Do(func() {
 		vuState := c.vu.State()

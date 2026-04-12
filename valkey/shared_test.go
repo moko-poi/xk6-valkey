@@ -172,4 +172,55 @@ func TestOptionsKey(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEqual(t, optionsKey(opts1), optionsKey(opts3))
+
+	opts4, _, err := readOptions(map[string]any{
+		"socket":   map[string]any{"host": "localhost", "port": int64(6379)},
+		"password": "pass1",
+	})
+	require.NoError(t, err)
+
+	opts5, _, err := readOptions(map[string]any{
+		"socket":   map[string]any{"host": "localhost", "port": int64(6379)},
+		"password": "pass2",
+	})
+	require.NoError(t, err)
+
+	assert.NotEqual(t, optionsKey(opts4), optionsKey(opts5), "different passwords should produce different keys")
+}
+
+func TestSharedClientRegistry_ReleaseOneKeepsOther(t *testing.T) {
+	t.Parallel()
+
+	rs := RunT(t)
+	rs.RegisterCommandHandler("GET", func(c *Connection, args []string) {
+		c.WriteBulkString("value")
+	})
+
+	registry := newSharedClientRegistry()
+	_, state := newVUState(t)
+
+	opts, _, err := readOptions(map[string]any{
+		"socket": map[string]any{"host": rs.Addr().IP.String(), "port": int64(rs.Addr().Port)},
+	})
+	require.NoError(t, err)
+
+	key := optionsKey(opts)
+
+	// Two references.
+	client, err := registry.getOrCreate(key, opts, state)
+	require.NoError(t, err)
+	_, err = registry.getOrCreate(key, opts, state)
+	require.NoError(t, err)
+
+	// Release one reference.
+	registry.release(key)
+
+	// The client should still be usable (not closed).
+	resp := client.Do(t.Context(), client.B().Get().Key("test").Build())
+	val, err := resp.ToString()
+	require.NoError(t, err)
+	assert.Equal(t, "value", val)
+
+	// Final release.
+	registry.release(key)
 }

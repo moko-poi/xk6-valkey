@@ -38,9 +38,10 @@ func newSharedClientRegistry() *sharedClientRegistry {
 // fields of a valkey.ClientOption. Two options with the same key represent the
 // same logical connection and can safely share a client.
 func optionsKey(opts valkey.ClientOption) string {
-	return fmt.Sprintf("addrs=%v;user=%s;db=%d;master=%s;tls=%t;resp2=%t;cache=%t",
+	return fmt.Sprintf("addrs=%v;user=%s;pass=%s;db=%d;master=%s;tls=%t;resp2=%t;cache=%t",
 		opts.InitAddress,
 		opts.Username,
+		opts.Password,
 		opts.SelectDB,
 		opts.Sentinel.MasterSet,
 		opts.TLSConfig != nil,
