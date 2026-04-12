@@ -2739,6 +2739,51 @@ func TestClientIsConnected(t *testing.T) {
 	})
 }
 
+func TestClientClose(t *testing.T) {
+	t.Parallel()
+
+	t.Run("close_after_command", func(t *testing.T) {
+		t.Parallel()
+
+		ts := newTestSetup(t)
+		rs := RunT(t)
+
+		gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+			_, err := ts.rt.RunString(fmt.Sprintf(`
+				(async () => {
+					const redis = new Client('redis://%s:%d');
+					await redis.sendCommand("PING");
+					if (!redis.isConnected()) {
+						throw new Error("expected isConnected to be true after command");
+					}
+					redis.close();
+					if (redis.isConnected()) {
+						throw new Error("expected isConnected to be false after close");
+					}
+				})()
+			`, rs.Addr().IP.String(), rs.Addr().Port))
+			return err
+		})
+		assert.NoError(t, gotScriptErr)
+	})
+
+	t.Run("close_before_connect_is_noop", func(t *testing.T) {
+		t.Parallel()
+
+		ts := newTestSetup(t)
+		gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+			_, err := ts.rt.RunString(`
+				const redis = new Client({
+					socket: { host: 'localhost', port: 6379 }
+				});
+				redis.close();
+			`)
+			return err
+		})
+		assert.NoError(t, gotScriptErr)
+	})
+}
+
 func TestClientTLSRootCAMerging(t *testing.T) {
 	t.Parallel()
 

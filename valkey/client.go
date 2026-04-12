@@ -1210,6 +1210,15 @@ func (c *Client) connect() error {
 	return nil
 }
 
+// Close closes the underlying valkey client connection.
+// After calling Close, the client should not be used.
+func (c *Client) Close() {
+	if c.valkeyClient != nil {
+		c.valkeyClient.Close()
+		c.valkeyClient = nil
+	}
+}
+
 // IsConnected returns true if the client is connected to valkey.
 func (c *Client) IsConnected() bool {
 	return c.valkeyClient != nil
