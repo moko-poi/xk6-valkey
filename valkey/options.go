@@ -140,6 +140,8 @@ func newOptionsFromObject(obj map[string]any) (valkey.ClientOption, bool, error)
 }
 
 // newOptionsFromString parses the expected URL into a valkey.ClientOption.
+// Note: The shared client option is not supported with URL strings.
+// Use the object form with `shared: true` to enable shared mode.
 func newOptionsFromString(url string) (valkey.ClientOption, error) {
 	opts, err := valkey.ParseURL(url)
 	if err != nil {

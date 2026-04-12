@@ -2,6 +2,7 @@ package valkey
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -38,10 +39,11 @@ func newSharedClientRegistry() *sharedClientRegistry {
 // fields of a valkey.ClientOption. Two options with the same key represent the
 // same logical connection and can safely share a client.
 func optionsKey(opts valkey.ClientOption) string {
+	passHash := fmt.Sprintf("%x", sha256.Sum256([]byte(opts.Password)))
 	return fmt.Sprintf("addrs=%v;user=%s;pass=%s;db=%d;master=%s;tls=%t;resp2=%t;cache=%t",
 		opts.InitAddress,
 		opts.Username,
-		opts.Password,
+		passHash,
 		opts.SelectDB,
 		opts.Sentinel.MasterSet,
 		opts.TLSConfig != nil,
@@ -53,6 +55,10 @@ func optionsKey(opts valkey.ClientOption) string {
 // getOrCreate returns an existing shared client for the given key, or creates
 // a new one using the provided options and VU state. The caller must eventually
 // call release with the same key.
+//
+// Note: The dialer from the first VU that triggers creation is used for the
+// shared client. Subsequent VUs reuse the same client (and its dialer).
+// This is acceptable because k6 VU dialers are typically identical.
 func (r *sharedClientRegistry) getOrCreate(key string, opts valkey.ClientOption, vuState *lib.State) (valkey.Client, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
