@@ -2861,3 +2861,232 @@ func TestClientTLSRootCAMergingVUOnly(t *testing.T) {
 	require.NoError(t, gotScriptErr)
 	assert.Equal(t, 1, rs.HandledCommandsCount())
 }
+
+func TestClientGetCache(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("GET", func(c *Connection, args []string) {
+		if len(args) != 1 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'GET' command"))
+			return
+		}
+
+		switch args[0] {
+		case "cached_key":
+			c.WriteBulkString("cached_value")
+		case "non_existing_key":
+			c.WriteNull()
+		}
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.getCache("cached_key", 60)
+				.then(res => { if (res !== "cached_value") { throw 'unexpected value for getCache result: ' + res } })
+				.then(() => redis.getCache("non_existing_key", 60))
+				.then(
+					res => { throw 'expected to fail getting non-existing key from redis' },
+					err => { if (err.error() != 'valkey nil message') { throw 'unexpected error: ' + err } }
+				)
+		`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 2, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"GET", "cached_key"},
+		{"GET", "non_existing_key"},
+	}, rs.GotCommands())
+}
+
+func TestClientHgetallCache(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("HGETALL", func(c *Connection, args []string) {
+		if len(args) != 1 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'HGETALL' command"))
+			return
+		}
+
+		if args[0] == "myhash" {
+			c.WriteArray("field1", "value1", "field2", "value2")
+		}
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.hgetallCache("myhash", 60)
+				.then(res => {
+					if (res["field1"] !== "value1") { throw 'unexpected field1: ' + res["field1"] }
+					if (res["field2"] !== "value2") { throw 'unexpected field2: ' + res["field2"] }
+				})
+		`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"HGETALL", "myhash"},
+	}, rs.GotCommands())
+}
+
+func TestClientSmembersCache(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("SMEMBERS", func(c *Connection, args []string) {
+		if len(args) != 1 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'SMEMBERS' command"))
+			return
+		}
+
+		if args[0] == "myset" {
+			c.WriteArray("member1", "member2", "member3")
+		}
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.smembersCache("myset", 30)
+				.then(res => {
+					if (res.length !== 3) { throw 'unexpected length: ' + res.length }
+					if (res[0] !== "member1") { throw 'unexpected member: ' + res[0] }
+				})
+		`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"SMEMBERS", "myset"},
+	}, rs.GotCommands())
+}
+
+func TestClientLrangeCache(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("LRANGE", func(c *Connection, args []string) {
+		if len(args) != 3 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'LRANGE' command"))
+			return
+		}
+
+		if args[0] == "mylist" {
+			c.WriteArray("a", "b", "c")
+		}
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.lrangeCache("mylist", 0, -1, 60)
+				.then(res => {
+					if (res.length !== 3) { throw 'unexpected length: ' + res.length }
+					if (res[0] !== "a") { throw 'unexpected element: ' + res[0] }
+					if (res[2] !== "c") { throw 'unexpected element: ' + res[2] }
+				})
+		`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"LRANGE", "mylist", "0", "-1"},
+	}, rs.GotCommands())
+}
+
+func TestClientMgetCache(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("MGET", func(c *Connection, args []string) {
+		if len(args) < 1 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'MGET' command"))
+			return
+		}
+
+		c.WriteArray("val1", "val2")
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.mgetCache(["key1", "key2"], 60)
+				.then(res => {
+					if (res.length !== 2) { throw 'unexpected length: ' + res.length }
+					if (res[0] !== "val1") { throw 'unexpected value: ' + res[0] }
+					if (res[1] !== "val2") { throw 'unexpected value: ' + res[1] }
+				})
+		`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"MGET", "key1", "key2"},
+	}, rs.GotCommands())
+}
+
+func TestClientHgetCache(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("HGET", func(c *Connection, args []string) {
+		if len(args) != 2 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'HGET' command"))
+			return
+		}
+
+		if args[0] == "myhash" {
+			if args[1] == "field1" {
+				c.WriteBulkString("value1")
+			} else {
+				c.WriteNull()
+			}
+		}
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.hgetCache("myhash", "field1", 60)
+				.then(res => { if (res !== "value1") { throw 'unexpected value: ' + res } })
+		`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"HGET", "myhash", "field1"},
+	}, rs.GotCommands())
+}

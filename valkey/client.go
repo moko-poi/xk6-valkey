@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/grafana/sobek"
 	valkey "github.com/valkey-io/valkey-go"
@@ -1126,6 +1127,371 @@ func (c *Client) SendCommand(command string, args ...any) *sobek.Promise {
 		}
 
 		resolve(resolveMessage(msg))
+	}()
+
+	return promise
+}
+
+// GetCache returns the value of `key` using client-side
+// caching with the given TTL in seconds.
+func (c *Client) GetCache(key string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Get().Key(key).Cache()
+		value, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).ToString()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(value)
+	}()
+
+	return promise
+}
+
+// MgetCache returns the values associated with the specified
+// keys using client-side caching with the given TTL in seconds.
+func (c *Client) MgetCache(keys []string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Mget().Key(keys...).Cache()
+		messages, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).ToArray()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		values := make([]any, len(messages))
+		for i, msg := range messages {
+			if msg.IsNil() {
+				values[i] = nil
+			} else {
+				s, sErr := msg.ToString()
+				if sErr != nil {
+					values[i] = nil
+				} else {
+					values[i] = s
+				}
+			}
+		}
+
+		resolve(values)
+	}()
+
+	return promise
+}
+
+// TtlCache returns the remaining time to live of a key using
+// client-side caching with the given cache TTL in seconds.
+//
+//nolint:revive
+func (c *Client) TtlCache(key string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Ttl().Key(key).Cache()
+		ttlSeconds, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(float64(ttlSeconds))
+	}()
+
+	return promise
+}
+
+// LrangeCache returns the specified elements of the list
+// stored at `key` using client-side caching with the given
+// TTL in seconds.
+func (c *Client) LrangeCache(key string, start, stop int64, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Lrange().Key(key).Start(start).Stop(stop).Cache()
+		values, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsStrSlice()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(values)
+	}()
+
+	return promise
+}
+
+// LindexCache returns the specified element of the list
+// stored at `key` using client-side caching with the given
+// TTL in seconds.
+func (c *Client) LindexCache(key string, index int64, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Lindex().Key(key).Index(index).Cache()
+		value, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).ToString()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(value)
+	}()
+
+	return promise
+}
+
+// LlenCache returns the length of the list stored at `key`
+// using client-side caching with the given TTL in seconds.
+func (c *Client) LlenCache(key string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Llen().Key(key).Cache()
+		length, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(length)
+	}()
+
+	return promise
+}
+
+// HgetCache returns the value associated with `field` in the
+// hash stored at `key` using client-side caching with the
+// given TTL in seconds.
+func (c *Client) HgetCache(key, field string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Hget().Key(key).Field(field).Cache()
+		value, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).ToString()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(value)
+	}()
+
+	return promise
+}
+
+// HgetallCache returns all fields and values of the hash
+// stored at `key` using client-side caching with the given
+// TTL in seconds.
+func (c *Client) HgetallCache(key string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Hgetall().Key(key).Cache()
+		hashMap, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsStrMap()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(hashMap)
+	}()
+
+	return promise
+}
+
+// HkeysCache returns all fields of the hash stored at `key`
+// using client-side caching with the given TTL in seconds.
+func (c *Client) HkeysCache(key string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Hkeys().Key(key).Cache()
+		keys, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsStrSlice()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(keys)
+	}()
+
+	return promise
+}
+
+// HvalsCache returns all values of the hash stored at `key`
+// using client-side caching with the given TTL in seconds.
+func (c *Client) HvalsCache(key string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Hvals().Key(key).Cache()
+		values, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsStrSlice()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(values)
+	}()
+
+	return promise
+}
+
+// HlenCache returns the number of fields in the hash stored
+// at `key` using client-side caching with the given TTL in
+// seconds.
+func (c *Client) HlenCache(key string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Hlen().Key(key).Cache()
+		n, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(n)
+	}()
+
+	return promise
+}
+
+// SismemberCache returns if member is a member of the set
+// stored at key using client-side caching with the given TTL
+// in seconds.
+func (c *Client) SismemberCache(key string, member any, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	if err := c.isSupportedType(1, member); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Sismember().Key(key).Member(stringifyValue(member)).Cache()
+		ok, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsBool()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(ok)
+	}()
+
+	return promise
+}
+
+// SmembersCache returns all members of the set stored at key
+// using client-side caching with the given TTL in seconds.
+func (c *Client) SmembersCache(key string, ttl int) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		cacheTTL := time.Duration(ttl) * time.Second
+		cmd := c.valkeyClient.B().Smembers().Key(key).Cache()
+		members, err := c.valkeyClient.DoCache(ctx, cmd, cacheTTL).AsStrSlice()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(members)
 	}()
 
 	return promise
