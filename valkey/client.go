@@ -1,10 +1,8 @@
 package valkey
 
 import (
-	"context"
-	"crypto/tls"
 	"fmt"
-	"net"
+	"sync"
 	"time"
 
 	"github.com/grafana/sobek"
@@ -20,6 +18,12 @@ type Client struct {
 	vu            modules.VU
 	valkeyOptions valkey.ClientOption
 	valkeyClient  valkey.Client
+
+	shared     bool
+	registry   *sharedClientRegistry
+	optKey     string
+	once       sync.Once
+	connectErr error
 }
 
 // stringifyValue converts any value to its string representation.
@@ -1500,72 +1504,24 @@ func (c *Client) SmembersCache(key string, ttl int) *sobek.Promise {
 // connect establishes the client's connection to the target
 // valkey instance(s).
 func (c *Client) connect() error {
-	// A nil VU state indicates we are in the init context.
-	// As a general convention, k6 should not perform IO in the
-	// init context. Thus, the Connect method will error if
-	// called in the init context.
+	if c.shared {
+		return c.connectShared()
+	}
+	return c.connectDirect()
+}
+
+// connectDirect creates a per-VU valkey.Client (the original behavior).
+func (c *Client) connectDirect() error {
 	vuState := c.vu.State()
 	if vuState == nil {
 		return common.NewInitContextError("connecting to a valkey server in the init context is not supported")
 	}
 
-	// If the valkeyClient is already instantiated, it is safe
-	// to assume that the connection is already established.
 	if c.valkeyClient != nil {
 		return nil
 	}
 
-	tlsCfg := c.valkeyOptions.TLSConfig
-	if tlsCfg != nil && vuState.TLSConfig != nil {
-		// Merge k6 TLS configuration with the one we received from the
-		// Client constructor. This will need adjusting depending on which
-		// options we want to expose in the module, and how we want
-		// the override to work.
-		tlsCfg.InsecureSkipVerify = vuState.TLSConfig.InsecureSkipVerify
-		tlsCfg.CipherSuites = vuState.TLSConfig.CipherSuites
-		tlsCfg.MinVersion = vuState.TLSConfig.MinVersion
-		tlsCfg.MaxVersion = vuState.TLSConfig.MaxVersion
-		tlsCfg.Renegotiation = vuState.TLSConfig.Renegotiation
-		tlsCfg.KeyLogWriter = vuState.TLSConfig.KeyLogWriter
-		tlsCfg.Certificates = append(tlsCfg.Certificates, vuState.TLSConfig.Certificates...)
-
-		// Merge Root CAs: start from the VU pool (if any) and add the
-		// client-provided CAs on top so both are trusted.
-		if vuState.TLSConfig.RootCAs != nil {
-			merged := vuState.TLSConfig.RootCAs.Clone()
-			if tlsCfg.RootCAs != nil {
-				for _, cert := range tlsCfg.RootCAs.Subjects() { //nolint:staticcheck
-					merged.AppendCertsFromPEM(cert)
-				}
-			}
-			tlsCfg.RootCAs = merged
-		}
-
-		// In order to preserve the underlying effects of the [netext.Dialer], such
-		// as handling blocked hostnames, or handling hostname resolution, we override
-		// the client's dialer with our own function which uses the VU's [netext.Dialer]
-		// and manually upgrades the connection to TLS.
-		//
-		// See Pull Request's #17 [discussion] for more details.
-		//
-		// [discussion]: https://github.com/grafana/xk6-redis/pull/17#discussion_r1369707388
-		c.valkeyOptions.DialCtxFn = func(ctx context.Context, addr string, dialer *net.Dialer, config *tls.Config) (net.Conn, error) {
-			rawConn, err := vuState.Dialer.DialContext(ctx, "tcp", addr)
-			if err != nil {
-				return nil, err
-			}
-			tlsConn := tls.Client(rawConn, config)
-			if err := tlsConn.HandshakeContext(ctx); err != nil {
-				rawConn.Close()
-				return nil, err
-			}
-			return tlsConn, nil
-		}
-	} else {
-		c.valkeyOptions.DialCtxFn = func(ctx context.Context, addr string, dialer *net.Dialer, config *tls.Config) (net.Conn, error) {
-			return vuState.Dialer.DialContext(ctx, "tcp", addr)
-		}
-	}
+	applyDialer(&c.valkeyOptions, vuState)
 
 	client, err := valkey.NewClient(c.valkeyOptions)
 	if err != nil {
@@ -1576,9 +1532,43 @@ func (c *Client) connect() error {
 	return nil
 }
 
+// connectShared obtains a shared valkey.Client from the registry, creating
+// it on first access. All VUs with the same connection options share a single
+// underlying client, enabling valkey-go's auto-pipelining.
+func (c *Client) connectShared() error {
+	c.once.Do(func() {
+		vuState := c.vu.State()
+		if vuState == nil {
+			c.connectErr = common.NewInitContextError("connecting to a valkey server in the init context is not supported")
+			return
+		}
+
+		key := optionsKey(c.valkeyOptions)
+		c.optKey = key
+
+		client, err := c.registry.getOrCreate(key, c.valkeyOptions, vuState)
+		if err != nil {
+			c.connectErr = err
+			return
+		}
+		c.valkeyClient = client
+	})
+	return c.connectErr
+}
+
 // Close closes the underlying valkey client connection.
 // After calling Close, the client should not be used.
+// In shared mode, the underlying connection is only closed when the last
+// reference is released.
 func (c *Client) Close() {
+	if c.shared {
+		if c.optKey != "" {
+			c.registry.release(c.optKey)
+		}
+		c.valkeyClient = nil
+		return
+	}
+
 	if c.valkeyClient != nil {
 		c.valkeyClient.Close()
 		c.valkeyClient = nil

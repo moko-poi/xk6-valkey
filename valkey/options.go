@@ -88,16 +88,22 @@ type nodeInfo struct {
 
 // newOptionsFromObject validates and instantiates an options struct from its
 // map representation as exported from sobek.Runtime.
-func newOptionsFromObject(obj map[string]any) (valkey.ClientOption, error) {
+//
+// The "shared" key is extracted from the map before JSON decoding so that
+// DisallowUnknownFields does not reject it.
+func newOptionsFromObject(obj map[string]any) (valkey.ClientOption, bool, error) {
+	shared, _ := obj["shared"].(bool)
+	delete(obj, "shared")
+
 	var options any
 	if cluster, ok := obj["cluster"].(map[string]any); ok {
 		obj = cluster
 		nodes, ok := cluster["nodes"].([]any)
 		if !ok {
-			return valkey.ClientOption{}, fmt.Errorf("cluster nodes property must be an array; got %T", cluster["nodes"])
+			return valkey.ClientOption{}, false, fmt.Errorf("cluster nodes property must be an array; got %T", cluster["nodes"])
 		}
 		if len(nodes) == 0 {
-			return valkey.ClientOption{}, errors.New("cluster nodes property cannot be empty")
+			return valkey.ClientOption{}, false, errors.New("cluster nodes property cannot be empty")
 		}
 		switch nodes[0].(type) {
 		case map[string]any:
@@ -105,7 +111,7 @@ func newOptionsFromObject(obj map[string]any) (valkey.ClientOption, error) {
 		case string:
 			options = &clusterNodesStringOptions{}
 		default:
-			return valkey.ClientOption{}, fmt.Errorf("cluster nodes array must contain string or object elements; got %T", nodes[0])
+			return valkey.ClientOption{}, false, fmt.Errorf("cluster nodes array must contain string or object elements; got %T", nodes[0])
 		}
 	} else if _, ok := obj["masterName"]; ok {
 		options = &sentinelOptions{}
@@ -115,7 +121,7 @@ func newOptionsFromObject(obj map[string]any) (valkey.ClientOption, error) {
 
 	jsonStr, err := json.Marshal(obj)
 	if err != nil {
-		return valkey.ClientOption{}, fmt.Errorf("unable to serialize options to JSON %w", err)
+		return valkey.ClientOption{}, false, fmt.Errorf("unable to serialize options to JSON %w", err)
 	}
 
 	// Instantiate a JSON decoder which will error on unknown
@@ -126,10 +132,11 @@ func newOptionsFromObject(obj map[string]any) (valkey.ClientOption, error) {
 
 	err = decoder.Decode(&options)
 	if err != nil {
-		return valkey.ClientOption{}, err
+		return valkey.ClientOption{}, false, err
 	}
 
-	return toClientOption(options)
+	copts, err := toClientOption(options)
+	return copts, shared, err
 }
 
 // newOptionsFromString parses the expected URL into a valkey.ClientOption.
@@ -145,25 +152,26 @@ func newOptionsFromString(url string) (valkey.ClientOption, error) {
 	return opts, nil
 }
 
-func readOptions(options any) (valkey.ClientOption, error) {
+func readOptions(options any) (valkey.ClientOption, bool, error) {
 	var (
-		opts valkey.ClientOption
-		err  error
+		opts   valkey.ClientOption
+		shared bool
+		err    error
 	)
 	switch val := options.(type) {
 	case string:
 		opts, err = newOptionsFromString(val)
 	case map[string]any:
-		opts, err = newOptionsFromObject(val)
+		opts, shared, err = newOptionsFromObject(val)
 	default:
-		return valkey.ClientOption{}, fmt.Errorf("invalid options type: %T; expected string or object", val)
+		return valkey.ClientOption{}, false, fmt.Errorf("invalid options type: %T; expected string or object", val)
 	}
 
 	if err != nil {
-		return valkey.ClientOption{}, fmt.Errorf("invalid options; reason: %w", err)
+		return valkey.ClientOption{}, false, fmt.Errorf("invalid options; reason: %w", err)
 	}
 
-	return opts, nil
+	return opts, shared, nil
 }
 
 func toClientOption(options any) (valkey.ClientOption, error) {
