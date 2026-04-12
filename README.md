@@ -47,6 +47,12 @@ Then:
   xk6 build --with github.com/moko-poi/xk6-valkey
   ```
 
+## Compatibility
+
+| xk6-valkey | k6    | Go   |
+|------------|-------|------|
+| v0.1.0     | v1.5.0 | 1.25 |
+
 ## Notice
 
 This project is a derivative work of [xk6-redis](https://github.com/grafana/xk6-redis) by Grafana Labs, licensed under the Apache License 2.0. The Redis client library (go-redis) has been replaced with [valkey-go](https://github.com/valkey-io/valkey-go) to provide native Valkey support.
