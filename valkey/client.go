@@ -100,6 +100,35 @@ func (c *Client) Set(key string, value any, expiration int) *sobek.Promise {
 	return promise
 }
 
+// Setnx sets the value of `key` to `value` only if `key` does not already exist.
+// Returns true if the key was set, false if the key already existed.
+func (c *Client) Setnx(key string, value any) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	if err := c.isSupportedType(1, value); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		n, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Setnx().Key(key).Value(stringifyValue(value)).Build()).AsBool()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(n)
+	}()
+
+	return promise
+}
+
 // Get returns the value for the given key.
 //
 // If the key does not exist, the promise is rejected with an error.
@@ -1106,6 +1135,53 @@ func (c *Client) Spop(key string) *sobek.Promise {
 	return promise
 }
 
+// Scard returns the number of elements in the set stored at `key`.
+// If the key does not exist, it returns 0.
+func (c *Client) Scard(key string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		n, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Scard().Key(key).Build()).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(n)
+	}()
+
+	return promise
+}
+
+// Ping sends a PING command to the server and returns "PONG".
+func (c *Client) Ping() *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		result, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Ping().Build()).ToString()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(result)
+	}()
+
+	return promise
+}
+
 // SendCommand sends a command to the redis server.
 func (c *Client) SendCommand(command string, args ...any) *sobek.Promise {
 	promise, resolve, reject := promises.New(c.vu)
@@ -1748,6 +1824,82 @@ func (c *Client) Zremrangebyscore(key, min, max string) *sobek.Promise {
 	go func() {
 		ctx := c.vu.Context()
 		n, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zremrangebyscore().Key(key).Min(min).Max(max).Build()).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(n)
+	}()
+
+	return promise
+}
+
+// Zincrby increments the score of `member` in the sorted set stored at `key`
+// by `increment`. If `member` does not exist, it is added with `increment` as its score.
+// Returns the new score of the member as a float64.
+func (c *Client) Zincrby(key string, increment float64, member string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		newScore, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zincrby().Key(key).Increment(increment).Member(member).Build()).AsFloat64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(newScore)
+	}()
+
+	return promise
+}
+
+// Zrevrange returns the specified range of elements in the sorted set stored
+// at `key`, with scores ordered from high to low. `start` and `stop` are
+// zero-based indices (0 is the element with the highest score).
+func (c *Client) Zrevrange(key string, start, stop int64) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		values, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zrevrange().Key(key).Start(start).Stop(stop).Build()).AsStrSlice()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(values)
+	}()
+
+	return promise
+}
+
+// Zcount returns the number of elements in the sorted set stored at `key`
+// with a score between `min` and `max` (inclusive).
+// The `min` and `max` arguments are strings to support special values
+// like "-inf", "+inf", and exclusive ranges like "(1".
+func (c *Client) Zcount(key, min, max string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		n, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zcount().Key(key).Min(min).Max(max).Build()).AsInt64()
 		if err != nil {
 			reject(err)
 			return
