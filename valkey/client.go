@@ -1585,6 +1585,180 @@ func (c *Client) IsConnected() bool {
 	return c.valkeyClient != nil
 }
 
+// Zadd adds a member with the specified score to the sorted set stored at `key`.
+// If the member already exists, the score is updated.
+func (c *Client) Zadd(key string, score float64, member string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		n, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zadd().Key(key).ScoreMember().ScoreMember(score, member).Build()).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(n)
+	}()
+
+	return promise
+}
+
+// Zrange returns the specified range of elements in the sorted set stored at `key`.
+// The `start` and `stop` arguments represent string-based range boundaries
+// (e.g., "0", "-1", "-inf", "+inf").
+func (c *Client) Zrange(key string, start, stop string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		values, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zrange().Key(key).Min(start).Max(stop).Build()).AsStrSlice()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(values)
+	}()
+
+	return promise
+}
+
+// Zscore returns the score of `member` in the sorted set stored at `key`.
+func (c *Client) Zscore(key, member string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		score, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zscore().Key(key).Member(member).Build()).AsFloat64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(score)
+	}()
+
+	return promise
+}
+
+// Zrem removes the specified members from the sorted set stored at `key`.
+// Non-existing members are ignored.
+func (c *Client) Zrem(key string, members ...any) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	if err := c.isSupportedType(1, members...); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		n, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zrem().Key(key).Member(stringifyAll(members)...).Build()).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(n)
+	}()
+
+	return promise
+}
+
+// Zcard returns the number of elements in the sorted set stored at `key`.
+func (c *Client) Zcard(key string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		n, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zcard().Key(key).Build()).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(n)
+	}()
+
+	return promise
+}
+
+// Zrank returns the rank of `member` in the sorted set stored at `key`,
+// with the scores ordered from low to high. The rank is 0-based.
+func (c *Client) Zrank(key, member string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		rank, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zrank().Key(key).Member(member).Build()).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(rank)
+	}()
+
+	return promise
+}
+
+// Zremrangebyscore removes all elements in the sorted set stored at `key`
+// with a score between `min` and `max` (inclusive).
+// The `min` and `max` arguments are strings to support special values
+// like "-inf", "+inf", and exclusive ranges like "(1".
+func (c *Client) Zremrangebyscore(key, min, max string) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		n, err := c.valkeyClient.Do(ctx, c.valkeyClient.B().Zremrangebyscore().Key(key).Min(min).Max(max).Build()).AsInt64()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(n)
+	}()
+
+	return promise
+}
+
 // isSupportedType returns whether the provided arguments are of a type
 // supported by the client.
 //
