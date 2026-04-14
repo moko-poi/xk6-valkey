@@ -3197,3 +3197,248 @@ func TestSharedClientAcrossVUs(t *testing.T) {
 		"shared mode (%d conns) should use fewer connections than independent mode (%d conns)",
 		sharedConns, indepConns)
 }
+
+func TestClientZadd(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZADD", func(c *Connection, args []string) {
+		if len(args) != 3 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZADD' command"))
+			return
+		}
+
+		c.WriteInteger(1)
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zadd("myset", 1.5, "member1")
+				.then(res => { if (res !== 1) { throw 'unexpected value for zadd result: ' + res } })
+				.then(() => redis.zadd("myset", 2.5, "member2"))
+				.then(res => { if (res !== 1) { throw 'unexpected value for zadd result: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 2, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZADD", "myset", "1.5", "member1"},
+		{"ZADD", "myset", "2.5", "member2"},
+	}, rs.GotCommands())
+}
+
+func TestClientZrange(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZRANGE", func(c *Connection, args []string) {
+		if len(args) != 3 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZRANGE' command"))
+			return
+		}
+
+		c.WriteArray("member1", "member2", "member3")
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zrange("myset", "0", "-1")
+				.then(res => {
+					if (res.length !== 3) { throw 'unexpected length: ' + res.length }
+					if (res[0] !== "member1") { throw 'unexpected value at index 0: ' + res[0] }
+					if (res[1] !== "member2") { throw 'unexpected value at index 1: ' + res[1] }
+					if (res[2] !== "member3") { throw 'unexpected value at index 2: ' + res[2] }
+				})
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZRANGE", "myset", "0", "-1"},
+	}, rs.GotCommands())
+}
+
+func TestClientZscore(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZSCORE", func(c *Connection, args []string) {
+		if len(args) != 2 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZSCORE' command"))
+			return
+		}
+
+		c.WriteBulkString("1.5")
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zscore("myset", "member1")
+				.then(res => { if (res !== 1.5) { throw 'unexpected value for zscore result: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZSCORE", "myset", "member1"},
+	}, rs.GotCommands())
+}
+
+func TestClientZrem(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	memberRemoved := false
+	rs.RegisterCommandHandler("ZREM", func(c *Connection, args []string) {
+		if len(args) != 2 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZREM' command"))
+			return
+		}
+
+		if memberRemoved {
+			c.WriteInteger(0)
+			return
+		}
+
+		memberRemoved = true
+		c.WriteInteger(1)
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zrem("myset", "member1")
+				.then(res => { if (res !== 1) { throw 'unexpected value for zrem result: ' + res } })
+				.then(() => redis.zrem("myset", "member1"))
+				.then(res => { if (res !== 0) { throw 'unexpected value for zrem result: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 2, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZREM", "myset", "member1"},
+		{"ZREM", "myset", "member1"},
+	}, rs.GotCommands())
+}
+
+func TestClientZcard(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZCARD", func(c *Connection, args []string) {
+		if len(args) != 1 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZCARD' command"))
+			return
+		}
+
+		c.WriteInteger(3)
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zcard("myset")
+				.then(res => { if (res !== 3) { throw 'unexpected value for zcard result: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZCARD", "myset"},
+	}, rs.GotCommands())
+}
+
+func TestClientZrank(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZRANK", func(c *Connection, args []string) {
+		if len(args) != 2 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZRANK' command"))
+			return
+		}
+
+		c.WriteInteger(0)
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zrank("myset", "member1")
+				.then(res => { if (res !== 0) { throw 'unexpected value for zrank result: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZRANK", "myset", "member1"},
+	}, rs.GotCommands())
+}
+
+func TestClientZremrangebyscore(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZREMRANGEBYSCORE", func(c *Connection, args []string) {
+		if len(args) != 3 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZREMRANGEBYSCORE' command"))
+			return
+		}
+
+		c.WriteInteger(2)
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zremrangebyscore("myset", "-inf", "+inf")
+				.then(res => { if (res !== 2) { throw 'unexpected value for zremrangebyscore result: ' + res } })
+				.then(() => redis.zremrangebyscore("myset", "1", "3"))
+				.then(res => { if (res !== 2) { throw 'unexpected value for zremrangebyscore result: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 2, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZREMRANGEBYSCORE", "myset", "-inf", "+inf"},
+		{"ZREMRANGEBYSCORE", "myset", "1", "3"},
+	}, rs.GotCommands())
+}
