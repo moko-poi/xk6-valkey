@@ -27,6 +27,39 @@ export default function () {
 }
 ```
 
+### Shared client
+
+By default each VU gets its own client. Set `shared` to have all VUs of a k6
+instance share a single underlying connection pool, which is closer to how a
+real backend talks to Valkey:
+
+```js
+// URL form
+const client = new valkey.Client("redis://localhost:6379?shared=true");
+
+// Object form
+const client = new valkey.Client({
+  socket: { host: "localhost", port: 6379 },
+  shared: true,
+});
+```
+
+### TLS
+
+`socket.tls.skipVerify` disables certificate verification for this client only.
+It is OR-ed with k6's global `insecureSkipTLSVerify`, so enabling either one is
+enough:
+
+```js
+const client = new valkey.Client({
+  socket: {
+    host: "localhost",
+    port: 6379,
+    tls: { skipVerify: true },
+  },
+});
+```
+
 ## Build
 
 The most common and simple case is to use k6 with automatic extension resolution. Simply add the extension's import and k6 will resolve the dependency automatically.

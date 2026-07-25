@@ -176,19 +176,109 @@ func TestOptionsShared(t *testing.T) {
 		assert.False(t, shared)
 	})
 
-	t.Run("shared_not_supported_for_url", func(t *testing.T) {
+	t.Run("url_shared_omitted_defaults_false", func(t *testing.T) {
 		t.Parallel()
 
 		_, shared, err := readOptions("redis://localhost:6379")
 		require.NoError(t, err)
 		assert.False(t, shared)
 	})
+
+	t.Run("url_shared_true", func(t *testing.T) {
+		t.Parallel()
+
+		opts, shared, err := readOptions("redis://localhost:6379?shared=true")
+		require.NoError(t, err)
+		assert.True(t, shared)
+		assert.Equal(t, []string{"localhost:6379"}, opts.InitAddress)
+	})
+
+	t.Run("url_shared_false", func(t *testing.T) {
+		t.Parallel()
+
+		_, shared, err := readOptions("redis://localhost:6379?shared=false")
+		require.NoError(t, err)
+		assert.False(t, shared)
+	})
+
+	t.Run("url_shared_accepts_boolean_spellings", func(t *testing.T) {
+		t.Parallel()
+
+		for _, val := range []string{"1", "t", "T", "TRUE", "True"} {
+			_, shared, err := readOptions("redis://localhost:6379?shared=" + val)
+			require.NoError(t, err, "shared=%s", val)
+			assert.True(t, shared, "shared=%s", val)
+		}
+	})
+
+	t.Run("url_shared_invalid_errors", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := readOptions("redis://localhost:6379?shared=yesplease")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid shared value")
+	})
+
+	t.Run("url_shared_does_not_disturb_other_options", func(t *testing.T) {
+		t.Parallel()
+
+		opts, shared, err := readOptions("redis://localhost:6379?shared=true&db=3")
+		require.NoError(t, err)
+		assert.True(t, shared)
+		assert.Equal(t, 3, opts.SelectDB)
+		assert.True(t, opts.AlwaysRESP2)
+	})
+}
+
+func TestOptionsTLSSkipVerify(t *testing.T) {
+	t.Parallel()
+
+	t.Run("skip_verify_true", func(t *testing.T) {
+		t.Parallel()
+
+		_, tlsCfg, err := setSocketOptions(&socketOptions{
+			Host: "localhost",
+			Port: 6379,
+			TLS:  &tlsOptions{SkipVerify: true},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tlsCfg)
+		assert.True(t, tlsCfg.InsecureSkipVerify)
+	})
+
+	t.Run("skip_verify_defaults_false", func(t *testing.T) {
+		t.Parallel()
+
+		_, tlsCfg, err := setSocketOptions(&socketOptions{
+			Host: "localhost",
+			Port: 6379,
+			TLS:  &tlsOptions{},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tlsCfg)
+		assert.False(t, tlsCfg.InsecureSkipVerify)
+	})
+
+	t.Run("skip_verify_via_object_options", func(t *testing.T) {
+		t.Parallel()
+
+		opts, _, err := newOptionsFromObject(map[string]any{
+			"socket": map[string]any{
+				"host": "localhost",
+				"port": int64(6379),
+				"tls":  map[string]any{"skipVerify": true},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, opts.TLSConfig)
+		assert.True(t, opts.TLSConfig.InsecureSkipVerify)
+	})
 }
 
 func TestOptionsURLDefaultsToRESP2(t *testing.T) {
 	t.Parallel()
 
-	opts, err := newOptionsFromString("redis://localhost:6379")
+	opts, _, err := newOptionsFromString("redis://localhost:6379")
 	require.NoError(t, err)
 	assert.True(t, opts.AlwaysRESP2)
 	assert.True(t, opts.DisableCache)
