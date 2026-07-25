@@ -7,15 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 
 	valkey "github.com/valkey-io/valkey-go"
 )
 
 type singleNodeOptions struct {
-	Socket     *socketOptions `json:"socket,omitempty"`
-	Username   string         `json:"username,omitempty"`
-	Password   string         `json:"password,omitempty"` //nolint:gosec
-	ClientName string         `json:"clientName,omitempty"`
+	Socket          *socketOptions `json:"socket,omitempty"`
+	Username        string         `json:"username,omitempty"`
+	Password        string         `json:"password,omitempty"` //nolint:gosec
+	ClientName      string         `json:"clientName,omitempty"`
 	Database        int            `json:"database,omitempty"`
 	Resp3           bool           `json:"resp3,omitempty"`
 	ClientSideCache bool           `json:"clientSideCache,omitempty"`
@@ -51,6 +53,10 @@ type tlsOptions struct {
 	CA   []string `json:"ca,omitempty"`
 	Cert string   `json:"cert,omitempty"`
 	Key  string   `json:"key,omitempty"`
+	// SkipVerify disables certificate verification for this client only. It is
+	// OR-ed with k6's global insecureSkipTLSVerify option, so either one
+	// enabling it is enough.
+	SkipVerify bool `json:"skipVerify,omitempty"`
 }
 
 type commonClusterOptions struct {
@@ -139,19 +145,45 @@ func newOptionsFromObject(obj map[string]any) (valkey.ClientOption, bool, error)
 	return copts, shared, err
 }
 
-// newOptionsFromString parses the expected URL into a valkey.ClientOption.
-// Note: The shared client option is not supported with URL strings.
-// Use the object form with `shared: true` to enable shared mode.
-func newOptionsFromString(url string) (valkey.ClientOption, error) {
-	opts, err := valkey.ParseURL(url)
+// parseSharedQuery reports whether the URL enables the shared client via a
+// `shared` query parameter. valkey.ParseURL ignores query keys it does not
+// know, so the parameter is read here instead.
+func parseSharedQuery(rawURL string) (bool, error) {
+	u, err := url.Parse(rawURL)
 	if err != nil {
-		return valkey.ClientOption{}, err
+		return false, err
+	}
+
+	q := u.Query()
+	if !q.Has("shared") {
+		return false, nil
+	}
+
+	shared, err := strconv.ParseBool(q.Get("shared"))
+	if err != nil {
+		return false, fmt.Errorf("invalid shared value: %q; expected a boolean", q.Get("shared"))
+	}
+
+	return shared, nil
+}
+
+// newOptionsFromString parses the expected URL into a valkey.ClientOption,
+// along with whether the shared client is enabled via `?shared=true`.
+func newOptionsFromString(rawURL string) (valkey.ClientOption, bool, error) {
+	shared, err := parseSharedQuery(rawURL)
+	if err != nil {
+		return valkey.ClientOption{}, false, err
+	}
+
+	opts, err := valkey.ParseURL(rawURL)
+	if err != nil {
+		return valkey.ClientOption{}, false, err
 	}
 
 	opts.AlwaysRESP2 = true
 	opts.DisableCache = true
 
-	return opts, nil
+	return opts, shared, nil
 }
 
 func readOptions(options any) (valkey.ClientOption, bool, error) {
@@ -162,7 +194,7 @@ func readOptions(options any) (valkey.ClientOption, bool, error) {
 	)
 	switch val := options.(type) {
 	case string:
-		opts, err = newOptionsFromString(val)
+		opts, shared, err = newOptionsFromString(val)
 	case map[string]any:
 		opts, shared, err = newOptionsFromObject(val)
 	default:
@@ -346,7 +378,7 @@ func setSocketOptions(sopts *socketOptions) (string, *tls.Config, error) {
 	var tlsCfg *tls.Config
 	if sopts.TLS != nil {
 		//#nosec G402
-		tlsCfg = &tls.Config{}
+		tlsCfg = &tls.Config{InsecureSkipVerify: sopts.TLS.SkipVerify}
 		if len(sopts.TLS.CA) > 0 {
 			caCertPool := x509.NewCertPool()
 			for _, cert := range sopts.TLS.CA {

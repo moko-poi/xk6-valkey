@@ -186,6 +186,24 @@ func TestOptionsKey(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEqual(t, optionsKey(opts4), optionsKey(opts5), "different passwords should produce different keys")
+
+	opts6, _, err := readOptions(map[string]any{
+		"socket": map[string]any{
+			"host": "localhost", "port": int64(6379),
+			"tls": map[string]any{"skipVerify": true},
+		},
+	})
+	require.NoError(t, err)
+
+	opts7, _, err := readOptions(map[string]any{
+		"socket": map[string]any{
+			"host": "localhost", "port": int64(6379),
+			"tls": map[string]any{"skipVerify": false},
+		},
+	})
+	require.NoError(t, err)
+
+	assert.NotEqual(t, optionsKey(opts6), optionsKey(opts7), "different skipVerify should produce different keys")
 }
 
 func TestSharedClientRegistry_ReleaseOneKeepsOther(t *testing.T) {
@@ -223,4 +241,45 @@ func TestSharedClientRegistry_ReleaseOneKeepsOther(t *testing.T) {
 
 	// Final release.
 	registry.release(key)
+}
+
+func TestApplyDialerSkipVerify(t *testing.T) {
+	t.Parallel()
+
+	// The per-client and global flags are OR-ed: either one enabling
+	// verification skipping is enough, and neither may clobber the other.
+	testCases := []struct {
+		name     string
+		client   bool
+		global   bool
+		expected bool
+	}{
+		{"neither", false, false, false},
+		{"client_only", true, false, true},
+		{"global_only", false, true, true},
+		{"both", true, true, true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, state := newVUState(t)
+			state.TLSConfig.InsecureSkipVerify = tc.global
+
+			opts, _, err := readOptions(map[string]any{
+				"socket": map[string]any{
+					"host": "localhost",
+					"port": int64(6379),
+					"tls":  map[string]any{"skipVerify": tc.client},
+				},
+			})
+			require.NoError(t, err)
+
+			applyDialer(&opts, state)
+
+			require.NotNil(t, opts.TLSConfig)
+			assert.Equal(t, tc.expected, opts.TLSConfig.InsecureSkipVerify)
+		})
+	}
 }

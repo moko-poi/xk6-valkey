@@ -40,13 +40,19 @@ func newSharedClientRegistry() *sharedClientRegistry {
 // same logical connection and can safely share a client.
 func optionsKey(opts valkey.ClientOption) string {
 	passHash := fmt.Sprintf("%x", sha256.Sum256([]byte(opts.Password)))
-	return fmt.Sprintf("addrs=%v;user=%s;pass=%s;db=%d;master=%s;tls=%t;resp2=%t;cache=%t",
+
+	// skipVerify is part of the connection identity: clients that disagree on
+	// certificate verification must not end up sharing one connection.
+	skipVerify := opts.TLSConfig != nil && opts.TLSConfig.InsecureSkipVerify
+
+	return fmt.Sprintf("addrs=%v;user=%s;pass=%s;db=%d;master=%s;tls=%t;skipVerify=%t;resp2=%t;cache=%t",
 		opts.InitAddress,
 		opts.Username,
 		passHash,
 		opts.SelectDB,
 		opts.Sentinel.MasterSet,
 		opts.TLSConfig != nil,
+		skipVerify,
 		opts.AlwaysRESP2,
 		opts.DisableCache,
 	)
@@ -105,7 +111,9 @@ func (r *sharedClientRegistry) release(key string) {
 func applyDialer(opts *valkey.ClientOption, vuState *lib.State) {
 	tlsCfg := opts.TLSConfig
 	if tlsCfg != nil && vuState.TLSConfig != nil {
-		tlsCfg.InsecureSkipVerify = vuState.TLSConfig.InsecureSkipVerify
+		// OR rather than assign: a per-client socket.tls.skipVerify must not be
+		// discarded just because k6's global insecureSkipTLSVerify is off.
+		tlsCfg.InsecureSkipVerify = tlsCfg.InsecureSkipVerify || vuState.TLSConfig.InsecureSkipVerify
 		tlsCfg.CipherSuites = vuState.TLSConfig.CipherSuites
 		tlsCfg.MinVersion = vuState.TLSConfig.MinVersion
 		tlsCfg.MaxVersion = vuState.TLSConfig.MaxVersion
