@@ -3203,6 +3203,120 @@ func TestSharedClientAcrossVUs(t *testing.T) {
 		sharedConns, indepConns)
 }
 
+func TestClientSetnx(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	existingKeys := map[string]bool{}
+	rs.RegisterCommandHandler("SETNX", func(c *Connection, args []string) {
+		if len(args) != 2 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'SETNX' command"))
+			return
+		}
+
+		if existingKeys[args[0]] {
+			c.WriteInteger(0)
+			return
+		}
+
+		existingKeys[args[0]] = true
+		c.WriteInteger(1)
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.setnx("mykey", "value1")
+				.then(res => { if (res !== true) { throw 'expected true for new key, got: ' + res } })
+				.then(() => redis.setnx("mykey", "value2"))
+				.then(res => { if (res !== false) { throw 'expected false for existing key, got: ' + res } })
+				.then(() => redis.setnx("unsupported_type", new Array("unsupported")))
+				.then(
+					res => { throw 'expected to fail with unsupported type' },
+					err => { if (!err.error().startsWith('unsupported type')) { throw 'unexpected error: ' + err } }
+				)
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 2, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"SETNX", "mykey", "value1"},
+		{"SETNX", "mykey", "value2"},
+	}, rs.GotCommands())
+}
+
+func TestClientScard(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("SCARD", func(c *Connection, args []string) {
+		if len(args) != 1 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'SCARD' command"))
+			return
+		}
+
+		switch args[0] {
+		case "non_existing_set":
+			c.WriteInteger(0)
+		default:
+			c.WriteInteger(3)
+		}
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.scard("myset")
+				.then(res => { if (res !== 3) { throw 'unexpected value for scard existing set: ' + res } })
+				.then(() => redis.scard("non_existing_set"))
+				.then(res => { if (res !== 0) { throw 'unexpected value for scard non-existing set: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 2, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"SCARD", "myset"},
+		{"SCARD", "non_existing_set"},
+	}, rs.GotCommands())
+}
+
+func TestClientPing(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("PING", func(c *Connection, args []string) {
+		c.WriteSimpleString("PONG")
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.ping()
+				.then(res => { if (res !== "PONG") { throw 'unexpected ping result: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"PING"},
+	}, rs.GotCommands())
+}
+
 func TestClientZadd(t *testing.T) {
 	t.Parallel()
 
@@ -3526,5 +3640,145 @@ func TestClientZremrangebyscore(t *testing.T) {
 		{"ZREMRANGEBYSCORE", "myset", "1", "3"},
 		{"ZREMRANGEBYSCORE", "myset", "(1", "3"},
 		{"ZREMRANGEBYSCORE", "non_existing_set", "-inf", "+inf"},
+	}, rs.GotCommands())
+}
+
+func TestClientZincrby(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	scores := map[string]float64{}
+	rs.RegisterCommandHandler("ZINCRBY", func(c *Connection, args []string) {
+		if len(args) != 3 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZINCRBY' command"))
+			return
+		}
+
+		increment := 0.0
+		fmt.Sscanf(args[1], "%f", &increment)
+		scores[args[2]] += increment
+		c.WriteBulkString(fmt.Sprintf("%g", scores[args[2]]))
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zincrby("myset", 5.0, "member1")
+				.then(res => { if (res !== 5) { throw 'unexpected zincrby result: ' + res } })
+				.then(() => redis.zincrby("myset", 3.0, "member1"))
+				.then(res => { if (res !== 8) { throw 'unexpected zincrby accumulated result: ' + res } })
+				.then(() => redis.zincrby("myset", -2.0, "member1"))
+				.then(res => { if (res !== 6) { throw 'unexpected zincrby decrement result: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 3, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZINCRBY", "myset", "5", "member1"},
+		{"ZINCRBY", "myset", "3", "member1"},
+		{"ZINCRBY", "myset", "-2", "member1"},
+	}, rs.GotCommands())
+}
+
+func TestClientZrevrange(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZREVRANGE", func(c *Connection, args []string) {
+		if len(args) != 3 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZREVRANGE' command"))
+			return
+		}
+
+		switch args[0] {
+		case "non_existing_set":
+			c.WriteArray()
+		default:
+			c.WriteArray("member3", "member2", "member1")
+		}
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zrevrange("myset", 0, -1)
+				.then(res => {
+					if (res.length !== 3) { throw 'unexpected length: ' + res.length }
+					if (res[0] !== "member3") { throw 'unexpected value at index 0: ' + res[0] }
+					if (res[1] !== "member2") { throw 'unexpected value at index 1: ' + res[1] }
+					if (res[2] !== "member1") { throw 'unexpected value at index 2: ' + res[2] }
+				})
+				.then(() => redis.zrevrange("myset", 0, 0))
+				.then(res => {
+					if (res.length !== 3) { throw 'unexpected length for top-1: ' + res.length }
+				})
+				.then(() => redis.zrevrange("non_existing_set", 0, -1))
+				.then(res => {
+					if (res.length !== 0) { throw 'expected empty array for non-existing set: ' + res.length }
+				})
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 3, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZREVRANGE", "myset", "0", "-1"},
+		{"ZREVRANGE", "myset", "0", "0"},
+		{"ZREVRANGE", "non_existing_set", "0", "-1"},
+	}, rs.GotCommands())
+}
+
+func TestClientZcount(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZCOUNT", func(c *Connection, args []string) {
+		if len(args) != 3 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'ZCOUNT' command"))
+			return
+		}
+
+		switch args[0] {
+		case "non_existing_set":
+			c.WriteInteger(0)
+		default:
+			c.WriteInteger(3)
+		}
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.zcount("myset", "-inf", "+inf")
+				.then(res => { if (res !== 3) { throw 'unexpected zcount all: ' + res } })
+				.then(() => redis.zcount("myset", "1", "5"))
+				.then(res => { if (res !== 3) { throw 'unexpected zcount range: ' + res } })
+				.then(() => redis.zcount("myset", "(1", "5"))
+				.then(res => { if (res !== 3) { throw 'unexpected zcount exclusive: ' + res } })
+				.then(() => redis.zcount("non_existing_set", "-inf", "+inf"))
+				.then(res => { if (res !== 0) { throw 'unexpected zcount non-existing: ' + res } })
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 4, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZCOUNT", "myset", "-inf", "+inf"},
+		{"ZCOUNT", "myset", "1", "5"},
+		{"ZCOUNT", "myset", "(1", "5"},
+		{"ZCOUNT", "non_existing_set", "-inf", "+inf"},
 	}, rs.GotCommands())
 }
