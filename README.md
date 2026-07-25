@@ -27,6 +27,25 @@ export default function () {
 }
 ```
 
+### Arbitrary commands
+
+`sendCommand` sends any command, but it passes every argument as a plain
+argument. In cluster mode that means no hash slot is computed client-side, so
+the command lands on an arbitrary node and only reaches the right one after a
+`MOVED` redirect. For single-key commands, use:
+
+```js
+// Computes the slot from the key and goes straight to the owning node.
+await client.sendKeyCommand("set", "mykey", "myvalue");
+
+// Same, plus marks the command readonly so it can be served by a replica
+// when the cluster client was created with `readOnly: true`.
+await client.sendReadCommand("zrange", "myzset", 0, -1, "WITHSCORES");
+```
+
+Both take `(command, key, ...args)`. `sendCommand` remains the right choice for
+commands with no key, or with several keys.
+
 ### Shared client
 
 By default each VU gets its own client. Set `shared` to have all VUs of a k6
