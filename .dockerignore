@@ -1,0 +1,7 @@
+.git
+.github
+examples
+tasks
+k6
+*.md
+!README.md
