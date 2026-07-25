@@ -41,11 +41,19 @@ func newSharedClientRegistry() *sharedClientRegistry {
 func optionsKey(opts valkey.ClientOption) string {
 	passHash := fmt.Sprintf("%x", sha256.Sum256([]byte(opts.Password)))
 
-	// skipVerify is part of the connection identity: clients that disagree on
-	// certificate verification must not end up sharing one connection.
-	skipVerify := opts.TLSConfig != nil && opts.TLSConfig.InsecureSkipVerify
+	// The TLS identity is part of the connection identity: clients that
+	// disagree on certificate verification or on the name they verify against
+	// must not end up sharing one connection.
+	var (
+		skipVerify bool
+		serverName string
+	)
+	if opts.TLSConfig != nil {
+		skipVerify = opts.TLSConfig.InsecureSkipVerify
+		serverName = opts.TLSConfig.ServerName
+	}
 
-	return fmt.Sprintf("addrs=%v;user=%s;pass=%s;db=%d;master=%s;tls=%t;skipVerify=%t;resp2=%t;cache=%t",
+	return fmt.Sprintf("addrs=%v;user=%s;pass=%s;db=%d;master=%s;tls=%t;skipVerify=%t;serverName=%s;resp2=%t;cache=%t",
 		opts.InitAddress,
 		opts.Username,
 		passHash,
@@ -53,6 +61,7 @@ func optionsKey(opts valkey.ClientOption) string {
 		opts.Sentinel.MasterSet,
 		opts.TLSConfig != nil,
 		skipVerify,
+		serverName,
 		opts.AlwaysRESP2,
 		opts.DisableCache,
 	)

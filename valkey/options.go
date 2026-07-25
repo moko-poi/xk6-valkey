@@ -57,6 +57,11 @@ type tlsOptions struct {
 	// OR-ed with k6's global insecureSkipTLSVerify option, so either one
 	// enabling it is enough.
 	SkipVerify bool `json:"skipVerify,omitempty"`
+	// ServerName is the name checked against the server certificate, and sent
+	// as SNI. It defaults to the connection host, which is what valkey.ParseURL
+	// does for the URL form; set it when the endpoint differs from the
+	// certificate's subject/SAN, such as behind a proxy or load balancer.
+	ServerName string `json:"serverName,omitempty"`
 }
 
 type commonClusterOptions struct {
@@ -379,6 +384,15 @@ func setSocketOptions(sopts *socketOptions) (string, *tls.Config, error) {
 	if sopts.TLS != nil {
 		//#nosec G402
 		tlsCfg = &tls.Config{InsecureSkipVerify: sopts.TLS.SkipVerify}
+
+		// Fall back to the connection host, matching valkey.ParseURL. Without
+		// this the object form would leave ServerName empty, sending no SNI
+		// and leaving verification with no name to check against.
+		tlsCfg.ServerName = sopts.TLS.ServerName
+		if tlsCfg.ServerName == "" {
+			tlsCfg.ServerName = sopts.Host
+		}
+
 		if len(sopts.TLS.CA) > 0 {
 			caCertPool := x509.NewCertPool()
 			for _, cert := range sopts.TLS.CA {

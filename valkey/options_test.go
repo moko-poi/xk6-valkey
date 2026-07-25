@@ -230,7 +230,7 @@ func TestOptionsShared(t *testing.T) {
 	})
 }
 
-func TestOptionsTLSSkipVerify(t *testing.T) {
+func TestOptionsTLS(t *testing.T) {
 	t.Parallel()
 
 	t.Run("skip_verify_true", func(t *testing.T) {
@@ -257,6 +257,47 @@ func TestOptionsTLSSkipVerify(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, tlsCfg)
 		assert.False(t, tlsCfg.InsecureSkipVerify)
+	})
+
+	t.Run("server_name_explicit", func(t *testing.T) {
+		t.Parallel()
+
+		_, tlsCfg, err := setSocketOptions(&socketOptions{
+			Host: "10.0.0.1",
+			Port: 6379,
+			TLS:  &tlsOptions{ServerName: "valkey.internal"},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tlsCfg)
+		assert.Equal(t, "valkey.internal", tlsCfg.ServerName)
+	})
+
+	t.Run("server_name_falls_back_to_host", func(t *testing.T) {
+		t.Parallel()
+
+		_, tlsCfg, err := setSocketOptions(&socketOptions{
+			Host: "valkey.example.com",
+			Port: 6379,
+			TLS:  &tlsOptions{},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, tlsCfg)
+		assert.Equal(t, "valkey.example.com", tlsCfg.ServerName)
+	})
+
+	t.Run("server_name_via_object_options", func(t *testing.T) {
+		t.Parallel()
+
+		opts, _, err := newOptionsFromObject(map[string]any{
+			"socket": map[string]any{
+				"host": "10.0.0.1",
+				"port": int64(6379),
+				"tls":  map[string]any{"serverName": "valkey.internal"},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, opts.TLSConfig)
+		assert.Equal(t, "valkey.internal", opts.TLSConfig.ServerName)
 	})
 
 	t.Run("skip_verify_via_object_options", func(t *testing.T) {
