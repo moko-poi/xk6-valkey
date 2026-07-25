@@ -204,6 +204,24 @@ func TestOptionsKey(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEqual(t, optionsKey(opts6), optionsKey(opts7), "different skipVerify should produce different keys")
+
+	opts8, _, err := readOptions(map[string]any{
+		"socket": map[string]any{
+			"host": "localhost", "port": int64(6379),
+			"tls": map[string]any{"serverName": "valkey.internal"},
+		},
+	})
+	require.NoError(t, err)
+
+	opts9, _, err := readOptions(map[string]any{
+		"socket": map[string]any{
+			"host": "localhost", "port": int64(6379),
+			"tls": map[string]any{"serverName": "valkey.external"},
+		},
+	})
+	require.NoError(t, err)
+
+	assert.NotEqual(t, optionsKey(opts8), optionsKey(opts9), "different serverName should produce different keys")
 }
 
 func TestSharedClientRegistry_ReleaseOneKeepsOther(t *testing.T) {

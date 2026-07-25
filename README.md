@@ -79,6 +79,21 @@ const client = new valkey.Client({
 });
 ```
 
+`socket.tls.serverName` sets the name checked against the server certificate,
+and sent as SNI. It defaults to `socket.host`, so it only needs setting when the
+endpoint differs from the certificate's subject/SAN — for example behind a proxy
+or load balancer:
+
+```js
+const client = new valkey.Client({
+  socket: {
+    host: "10.0.0.1",
+    port: 6379,
+    tls: { serverName: "valkey.internal" },
+  },
+});
+```
+
 ## Build
 
 The most common and simple case is to use k6 with automatic extension resolution. Simply add the extension's import and k6 will resolve the dependency automatically.
