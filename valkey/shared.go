@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 
 	valkey "github.com/valkey-io/valkey-go"
-	"go.k6.io/k6/lib"
+	"go.k6.io/k6/v2/lib"
 )
 
 // sharedClientEntry holds a shared valkey.Client along with a reference count.
