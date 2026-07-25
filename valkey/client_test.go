@@ -2021,6 +2021,126 @@ func TestClientSendCommand(t *testing.T) {
 	}, rs.GotCommands())
 }
 
+func TestClientSendKeyCommand(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("SADD", func(c *Connection, args []string) {
+		if len(args) != 2 {
+			c.WriteError(errors.New("ERR unexpected number of arguments for 'SADD' command"))
+			return
+		}
+
+		c.WriteInteger(1)
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.sendKeyCommand("sadd", "existing_set", "foo")
+				.then(res => { if (res !== 1) { throw 'unexpected value for sadd result: ' + res } })
+
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	// The key moves from Args to Keys, which changes slot computation only —
+	// the bytes on the wire are identical to sendCommand's.
+	assert.Equal(t, [][]string{
+		{"SADD", "existing_set", "foo"},
+	}, rs.GotCommands())
+}
+
+func TestClientSendReadCommand(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSetup(t)
+	rs := RunT(t)
+	rs.RegisterCommandHandler("ZRANGE", func(c *Connection, args []string) {
+		c.WriteArray("member1", "member2")
+	})
+
+	gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+		_, err := ts.rt.RunString(fmt.Sprintf(`
+			const redis = new Client('redis://%s');
+
+			redis.sendReadCommand("zrange", "myzset", 0, -1)
+				.then(res => {
+					if (res.length !== 2) { throw 'unexpected zrange result length: ' + res.length }
+					if (res[0] !== 'member1') { throw 'unexpected zrange result: ' + res }
+				})
+
+			`, rs.Addr()))
+
+		return err
+	})
+
+	assert.NoError(t, gotScriptErr)
+	assert.Equal(t, 1, rs.HandledCommandsCount())
+	assert.Equal(t, [][]string{
+		{"ZRANGE", "myzset", "0", "-1"},
+	}, rs.GotCommands())
+}
+
+func TestClientSendKeyAndReadCommandArgumentPositions(t *testing.T) {
+	t.Parallel()
+
+	// Both take (command, key, ...args), so an unsupported value passed as the
+	// third JS argument must be reported at index 2 — the same position
+	// sendCommand reports for the same call site.
+	testCases := []struct {
+		name      string
+		statement string
+	}{
+		{
+			name:      "sendCommand",
+			statement: `redis.sendCommand("sadd", "myset", {})`,
+		},
+		{
+			name:      "sendKeyCommand",
+			statement: `redis.sendKeyCommand("sadd", "myset", {})`,
+		},
+		{
+			name:      "sendReadCommand",
+			statement: `redis.sendReadCommand("zrange", "myzset", {})`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ts := newTestSetup(t)
+			rs := RunT(t)
+
+			gotScriptErr := ts.runtime.EventLoop.Start(func() error {
+				_, err := ts.rt.RunString(fmt.Sprintf(`
+					const redis = new Client('redis://%s');
+
+					%s.then(
+						res => { throw 'expected to fail with unsupported type' },
+						err => {
+							if (!err.error().startsWith('unsupported type')) { throw 'unexpected error: ' + err }
+							if (err.error().indexOf('index 2') === -1) { throw 'unexpected position: ' + err }
+						}
+					)
+
+					`, rs.Addr(), tc.statement))
+
+				return err
+			})
+
+			assert.NoError(t, gotScriptErr)
+			assert.Equal(t, 0, rs.HandledCommandsCount())
+		})
+	}
+}
+
 func TestClientCommandsInInitContext(t *testing.T) {
 	t.Parallel()
 
@@ -2191,6 +2311,14 @@ func TestClientCommandsInInitContext(t *testing.T) {
 		{
 			name:      "sendCommand should fail when used in the init context",
 			statement: "redis.sendCommand('GET', 'shouldfail')",
+		},
+		{
+			name:      "sendKeyCommand should fail when used in the init context",
+			statement: "redis.sendKeyCommand('GET', 'shouldfail')",
+		},
+		{
+			name:      "sendReadCommand should fail when used in the init context",
+			statement: "redis.sendReadCommand('GET', 'shouldfail')",
 		},
 	}
 
@@ -2385,6 +2513,14 @@ func TestClientCommandsAgainstUnreachableServer(t *testing.T) {
 		{
 			name:      "sendCommand should fail when server is unreachable",
 			statement: "redis.sendCommand('GET', 'shouldfail')",
+		},
+		{
+			name:      "sendKeyCommand should fail when server is unreachable",
+			statement: "redis.sendKeyCommand('GET', 'shouldfail')",
+		},
+		{
+			name:      "sendReadCommand should fail when server is unreachable",
+			statement: "redis.sendReadCommand('GET', 'shouldfail')",
 		},
 	}
 

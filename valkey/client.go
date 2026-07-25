@@ -1212,6 +1212,79 @@ func (c *Client) SendCommand(command string, args ...any) *sobek.Promise {
 	return promise
 }
 
+// SendKeyCommand sends a single-key command to the valkey server, computing the
+// cluster hash slot from `key` client-side.
+//
+// SendCommand puts every argument through Args, so no slot is computed and in
+// cluster mode the command is sent to an arbitrary node, reaching the right one
+// only after a MOVED redirect. Building the key part with Keys avoids that
+// extra round-trip. Use SendReadCommand for reads that may go to a replica.
+func (c *Client) SendKeyCommand(command string, key string, args ...any) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	if err := c.isSupportedType(2, args...); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		stringArgs := stringifyAll(args)
+		cmd := c.valkeyClient.B().Arbitrary(command).Keys(key).Args(stringArgs...).Build()
+		msg, err := c.valkeyClient.Do(ctx, cmd).ToMessage()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(resolveMessage(msg))
+	}()
+
+	return promise
+}
+
+// SendReadCommand sends a single-key read command to the valkey server. Like
+// SendKeyCommand it computes the hash slot from `key`, and additionally marks
+// the command readonly so it is eligible for replica routing when the cluster
+// client was created with `readOnly: true`.
+//
+// This is what read commands that can only be expressed through Arbitrary
+// (for example ZRANGE ... BYSCORE REV LIMIT WITHSCORES) need in order to
+// benefit from read scaling; SendCommand always lands on the primary.
+func (c *Client) SendReadCommand(command string, key string, args ...any) *sobek.Promise {
+	promise, resolve, reject := promises.New(c.vu)
+
+	if err := c.connect(); err != nil {
+		reject(err)
+		return promise
+	}
+
+	if err := c.isSupportedType(2, args...); err != nil {
+		reject(err)
+		return promise
+	}
+
+	go func() {
+		ctx := c.vu.Context()
+		stringArgs := stringifyAll(args)
+		cmd := c.valkeyClient.B().Arbitrary(command).Keys(key).Args(stringArgs...).ReadOnly()
+		msg, err := c.valkeyClient.Do(ctx, cmd).ToMessage()
+		if err != nil {
+			reject(err)
+			return
+		}
+
+		resolve(resolveMessage(msg))
+	}()
+
+	return promise
+}
+
 // GetCache returns the value of `key` using client-side
 // caching with the given TTL in seconds.
 func (c *Client) GetCache(key string, ttl int) *sobek.Promise {
