@@ -7,9 +7,9 @@ import (
 
 	"github.com/grafana/sobek"
 	valkey "github.com/valkey-io/valkey-go"
-	"go.k6.io/k6/js/common"
-	"go.k6.io/k6/js/modules"
-	"go.k6.io/k6/js/promises"
+	"go.k6.io/k6/v2/js/common"
+	"go.k6.io/k6/v2/js/modules"
+	"go.k6.io/k6/v2/js/promises"
 )
 
 // Client represents the Client constructor (i.e. `new redis.Client()`) and

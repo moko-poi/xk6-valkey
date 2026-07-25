@@ -49,9 +49,14 @@ Then:
 
 ## Compatibility
 
-| xk6-valkey | k6    | Go   |
-|------------|-------|------|
+| xk6-valkey | k6     | Go   |
+|------------|--------|------|
+| v0.2.0     | v2.1.0 | 1.25 |
 | v0.1.0     | v1.5.0 | 1.25 |
+
+The extension imports `go.k6.io/k6/v2`, so it must be built against k6 v2.x.
+Building it into a k6 v1 binary fails with a "conflicting k6 versions" error;
+use xk6-valkey v0.1.0 for k6 v1.
 
 ## Notice
 
