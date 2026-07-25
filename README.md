@@ -114,6 +114,24 @@ Then:
   xk6 build --with github.com/moko-poi/xk6-valkey
   ```
 
+### Container image
+
+A prebuilt image with the extension already compiled in is published to GHCR for
+`linux/amd64` and `linux/arm64`:
+
+```shell
+docker run --rm -v "$PWD:/scripts" ghcr.io/moko-poi/xk6-valkey run /scripts/loadtest.js
+```
+
+To build it yourself, optionally pinning a different k6 release:
+
+```shell
+docker build --build-arg K6_VERSION=v2.1.0 -t xk6-valkey .
+```
+
+`K6_VERSION` must stay on the same module major as `go.mod` — see Compatibility
+below.
+
 ## Compatibility
 
 | xk6-valkey | k6     | Go   |
